@@ -2,6 +2,35 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 
 const PORT = process.env.PORT || 5000;
+const MONITOR_URL = process.env.LEGION_MONITOR_URL || 'https://legion-monitor.grudge.workers.dev';
+
+// ── Legion Monitor: report errors + health to Cloudflare Worker ──────────────
+function reportToLegion(message, stack = '', type = 'error') {
+  const payload = JSON.stringify({
+    site: 'grudge-pvp-server',
+    type,
+    message: String(message).slice(0, 1000),
+    stack: String(stack).slice(0, 2000),
+    severity: type === 'uncaughtException' ? 'critical' : 'error',
+    ts: Date.now(),
+  });
+  fetch(`${MONITOR_URL}/error`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: payload,
+  }).catch(() => {});
+}
+
+process.on('uncaughtException', (err) => {
+  console.error('[pvp] UNCAUGHT EXCEPTION:', err);
+  reportToLegion(err.message, err.stack, 'uncaughtException');
+});
+
+process.on('unhandledRejection', (reason) => {
+  const msg = reason?.message || String(reason);
+  console.error('[pvp] UNHANDLED REJECTION:', msg);
+  reportToLegion(msg, reason?.stack, 'unhandledRejection');
+});
 
 const rooms = new Map();
 
